@@ -3,17 +3,45 @@
 A run-once Python script that analyses one iRacing session from a local **`.ibt`
 telemetry file** and writes it to a Google Sheet for race prep.
 
-It creates up to four tabs:
+It **auto-detects the session type** (endurance/race vs qualifying) and produces
+the matching analytics, in up to six tabs:
 
-- **Summary** — track/car/session info, your result, and clean-lap pace stats
-  (best / average / median / consistency).
+- **Summary** — detected session type, track/car info, your result, pit-stop
+  count, and clean-lap pace stats (best / average / median / consistency / fuel
+  per lap).
 - **Field Results** — every driver from the session: best & last lap, laps,
   incidents, iRating (from the file's SessionInfo).
 - **My Laps** — your lap-by-lap times with a numeric `Seconds` column (chart it),
-  max speed, and `Δ Best` (gap of each lap to your best clean lap).
+  the **stint** each lap belongs to, a lap **type** (out / green / in / pit),
+  fuel used, max speed, and `Δ Best`.
+- **Stints** *(race/endurance)* — one row per stint: laps, duration, best /
+  average / median, **consistency** (std), **degradation** (s/lap trend), fuel
+  used, fuel per lap, **refuel** amount, and the pit stop that ended it
+  (duration + fuel added, flagged as a **possible driver change** on long team
+  stops).
+- **Qualifying** *(qualifying)* — flying-lap breakdown with gaps to your best,
+  plus starting fuel.
+- **Strategy** *(race/endurance)* — fuel-to-finish and pit-window projection:
+  fuel burn (L/lap), laps per tank, fuel needed to finish, minimum pit stops,
+  and for each stop a target lap, a pit **window** (earliest–latest lap), and the
+  fuel to add. Race length is read from the file when it's a real race, or set it
+  yourself with `--race-laps` / `--race-minutes` to plan an upcoming race from a
+  practice run.
 - **Best Lap Telemetry** — a downsampled trace of your fastest clean lap
   (Speed / Throttle / Brake / Gear / Steering vs lap distance) — chart it to see
   exactly where you're gaining or losing time.
+
+### How stints and session type are detected
+
+- **Stints** are split at detected **pit stops** (stationary in the pit box via
+  the `PlayerCarInPitStall` channel, or pit road + near-zero speed as a
+  fallback). Each stop records its **duration** and **fuel delta**, so refuels,
+  splash-and-go, and long service/driver-change stops are distinguished. Out-laps
+  and in-laps are excluded from pace stats; degradation is the lap-time trend
+  across a stint's green laps.
+- **Session type** uses the file's `SessionType` label first, then heuristics
+  (lap count, pit stops, refuelling) so a qualifying *simulation* run inside a
+  practice session is still recognised as qualifying-style.
 
 ## Why `.ibt` files (and not the web API)
 
@@ -107,9 +135,13 @@ python main.py                       # newest .ibt found automatically
 python main.py path/to/session.ibt   # a specific telemetry file
 python main.py --list                # show every .ibt it can find, then exit
 python main.py --dry-run             # parse + analyse, print to console, no upload
+python main.py --race-laps 50        # project pit strategy for a 50-lap race
+python main.py --race-minutes 120    # ...or a 2-hour timed race
 ```
 
-Use `--dry-run` to check the analysis without needing Google set up yet.
+Use `--dry-run` to check the analysis without needing Google set up yet. Strategy
+defaults can also live in `.env` (`RACE_LAPS`, `RACE_MINUTES`,
+`FUEL_MARGIN_LAPS`, `PIT_LOSS_SECONDS`); CLI flags override them.
 
 ## Notes
 

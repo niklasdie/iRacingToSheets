@@ -19,6 +19,11 @@ class Config:
     google_share_email: str | None
     # Local telemetry
     telemetry_dir: str
+    # Strategy projection (optional defaults; CLI flags override)
+    race_laps: int | None
+    race_minutes: float | None
+    fuel_margin_laps: float
+    pit_loss_s: float
     # iRacing web Data API (optional — alternative path only)
     iracing_email: str | None
     iracing_password: str | None
@@ -36,12 +41,20 @@ def _int_or_none(value: str | None) -> int | None:
     return int(value) if value and value.strip() else None
 
 
+def _float_or_none(value: str | None) -> float | None:
+    return float(value) if value and value.strip() else None
+
+
 def load_config() -> Config:
     return Config(
         google_creds_path=os.getenv("GOOGLE_CREDENTIALS_PATH", "service_account.json"),
         google_sheet_id=_clean("GOOGLE_SHEET_ID"),
         google_share_email=_clean("GOOGLE_SHARE_EMAIL"),
         telemetry_dir=os.getenv("IRACING_TELEMETRY_DIR", "~/Documents/iRacing/telemetry"),
+        race_laps=_int_or_none(os.getenv("RACE_LAPS")),
+        race_minutes=_float_or_none(os.getenv("RACE_MINUTES")),
+        fuel_margin_laps=float(os.getenv("FUEL_MARGIN_LAPS", "0.3")),
+        pit_loss_s=float(os.getenv("PIT_LOSS_SECONDS", "30")),
         iracing_email=_clean("IRACING_EMAIL"),
         iracing_password=_clean("IRACING_PASSWORD"),
         iracing_cust_id=_int_or_none(os.getenv("IRACING_CUST_ID")),

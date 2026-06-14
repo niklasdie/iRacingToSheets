@@ -16,6 +16,8 @@ import os
 from config import load_config
 from ibt_client import IBTSession
 import ibt_analysis as A
+import stints
+import strategy
 from sheets import SheetWriter, df_to_values
 
 
@@ -24,15 +26,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("ibt_file", nargs="?", help="Path to a .ibt file (default: newest found).")
     p.add_argument("--list", action="store_true", help="List .ibt files that can be found, then exit.")
     p.add_argument("--dry-run", action="store_true", help="Parse and analyse but do not upload.")
+    p.add_argument("--race-laps", type=int, help="Project strategy for a race of this many laps.")
+    p.add_argument("--race-minutes", type=float, help="Project strategy for a timed race (minutes).")
+    p.add_argument("--margin-laps", type=float, help="Fuel safety reserve in laps (default 0.3).")
+    p.add_argument("--pit-loss", type=float, help="Seconds lost per stop, for timed-race lap estimate (default 30).")
     return p.parse_args()
 
 
 def candidate_dirs(cfg) -> list:
-    """Telemetry folders to search, most-specific first, de-duplicated.
-
-    Covers the standard location and the common Windows case where Documents is
-    redirected into OneDrive.
-    """
     raw = [
         cfg.telemetry_dir,
         "~/Documents/iRacing/telemetry",
@@ -49,7 +50,6 @@ def candidate_dirs(cfg) -> list:
 
 
 def find_ibt_files(cfg) -> list:
-    """All .ibt files across candidate dirs, newest first."""
     files = []
     for d in candidate_dirs(cfg):
         files.extend(glob.glob(os.path.join(d, "*.ibt")))
@@ -73,7 +73,6 @@ def resolve_ibt(cfg, explicit: str | None) -> str:
 
 
 def check_google_config(cfg) -> None:
-    """Fail early with clear guidance if the upload can't possibly work."""
     if not os.path.exists(cfg.google_creds_path):
         raise SystemExit(
             f"Google credentials not found at '{cfg.google_creds_path}'. "
@@ -88,16 +87,47 @@ def check_google_config(cfg) -> None:
         )
 
 
-def _print_tables(title, summary, field_df, laps_df, trace_df) -> None:
+def build_tabs(session, opts) -> tuple:
+    """Analyse the session into an ordered list of (tab_name, values) tabs."""
+    lap_df = A.lap_table(session)
+    stops = A.detect_stops(session)
+    detected, reason = stints.classify_session(session, lap_df, stops)
+    stats = A.lap_stats(lap_df)
+    best_lap = A.best_clean_lap(lap_df)
+    trace_df = A.best_lap_trace_df(session, best_lap)
+    title = A.build_title(session.session_info)
+
+    tabs = [
+        ("Summary", A.summary_rows(session.session_info, stats, best_lap, lap_df, detected, len(stops))),
+    ]
+    field_df = A.field_results_df(session.session_info)
+    if not field_df.empty:
+        tabs.append(("Field Results", df_to_values(field_df)))
+    if not lap_df.empty:
+        tabs.append(("My Laps", df_to_values(A.laps_view(lap_df))))
+
+    if "Qualifying" in detected:
+        tabs.append(("Qualifying", stints.qualifying_summary(lap_df)))
+    else:
+        stint_df = stints.stint_table(lap_df, stops, session.session_info)
+        if not stint_df.empty:
+            tabs.append(("Stints", df_to_values(stint_df)))
+        tabs.append(("Strategy", strategy.project(
+            session, lap_df, stats, opts["race_laps"], opts["race_minutes"],
+            opts["margin_laps"], opts["pit_loss_s"])))
+
+    if not trace_df.empty:
+        tabs.append(("Best Lap Telemetry", df_to_values(trace_df)))
+    return title, detected, reason, tabs
+
+
+def _print_tabs(title, detected, reason, tabs) -> None:
     print(f"\n=== {title} ===")
-    print("\n[Summary]")
-    for row in summary:
-        print(f"  {row[0]:<26} {row[1]}")
-    for name, df in (("Field Results", field_df), ("My Laps", laps_df),
-                     ("Best Lap Telemetry", trace_df)):
-        print(f"\n[{name}] ({len(df)} rows)")
-        if not df.empty:
-            print(df.head(12).to_string(index=False))
+    print(f"Detected session type: {detected}  ({reason})")
+    for name, values in tabs:
+        print(f"\n[{name}] ({max(len(values) - 1, 0)} rows)")
+        for row in values[:14]:
+            print("  " + " | ".join("" if v is None else str(v) for v in row))
 
 
 def main() -> None:
@@ -117,35 +147,32 @@ def main() -> None:
     if not args.dry_run:
         check_google_config(cfg)
 
+    opts = {
+        "race_laps": args.race_laps if args.race_laps is not None else cfg.race_laps,
+        "race_minutes": args.race_minutes if args.race_minutes is not None else cfg.race_minutes,
+        "margin_laps": args.margin_laps if args.margin_laps is not None else cfg.fuel_margin_laps,
+        "pit_loss_s": args.pit_loss if args.pit_loss is not None else cfg.pit_loss_s,
+    }
+
     path = resolve_ibt(cfg, args.ibt_file)
     print(f"Parsing {path} ...")
     session = IBTSession(path)
     try:
-        field_df = A.field_results_df(session.session_info)
-        laps_df = A.my_laps_df(session)
-        stats = A.lap_stats(laps_df)
-        best_lap = A.best_clean_lap(laps_df)
-        trace_df = A.best_lap_trace_df(session, best_lap)
-        summary = A.summary_rows(session.session_info, stats, best_lap, laps_df)
-        title = A.build_title(session.session_info)
+        title, detected, reason, tabs = build_tabs(session, opts)
     finally:
         session.close()
 
     if args.dry_run:
-        _print_tables(title, summary, field_df, laps_df, trace_df)
+        _print_tabs(title, detected, reason, tabs)
         print("\n(dry run — nothing uploaded)")
         return
 
+    print(f"Detected session type: {detected} ({reason})")
     print("Uploading to Google Sheets ...")
     writer = SheetWriter(cfg.google_creds_path)
     sh = writer.open_or_create(cfg.google_sheet_id, title, cfg.google_share_email)
-    writer.write_tab(sh, "Summary", summary)
-    if not field_df.empty:
-        writer.write_tab(sh, "Field Results", df_to_values(field_df))
-    if not laps_df.empty:
-        writer.write_tab(sh, "My Laps", df_to_values(laps_df))
-    if not trace_df.empty:
-        writer.write_tab(sh, "Best Lap Telemetry", df_to_values(trace_df))
+    for name, values in tabs:
+        writer.write_tab(sh, name, values)
     writer.remove_default_sheet(sh)
 
     print(f"Done → {sh.url}")
