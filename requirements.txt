@@ -1,4 +1,4 @@
-iracingdataapi>=1.2.5
+requests>=2.31
 pandas>=2.0
 gspread>=6.0
 python-dotenv>=1.0

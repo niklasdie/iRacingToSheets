@@ -26,7 +26,13 @@ def main() -> None:
     cfg = load_config()
     cust_id = args.cust_id or cfg.iracing_cust_id
 
-    client = IRacingClient(cfg.iracing_email, cfg.iracing_password)
+    client = IRacingClient(
+        cfg.iracing_client_id,
+        cfg.iracing_client_secret,
+        cfg.iracing_email,
+        cfg.iracing_password,
+        cfg.token_cache_path,
+    )
 
     # 1. Decide which session to pull.
     if args.subsession:

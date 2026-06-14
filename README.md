@@ -15,6 +15,15 @@ It creates three tabs:
 
 Data comes from the official **iRacing Data API** — no sim or Windows required.
 
+> ⚠️ **iRacing authentication changed.** Legacy email/password auth was retired
+> on **2025-12-09** (2026 Season 1). The Data API now requires **OAuth2**. This
+> tool uses the `password_limited` grant, which needs a registered
+> `client_id`/`client_secret`. iRacing has **paused issuing new OAuth client
+> IDs**, so you can only run this if you already hold OAuth credentials (check
+> <https://oauth.iracing.com/accountmanagement/>). The code is ready for the
+> moment registration reopens. See
+> <https://oauth.iracing.com/oauth2/book/data_api_workflow.html>.
+
 ## 1. Install
 
 ```bash
@@ -49,8 +58,9 @@ You then have two ways to deliver the sheet (pick one in `.env`):
 cp .env.example .env
 ```
 
-Fill in your iRacing email/password, your `IRACING_CUST_ID` (on your iRacing
-profile page), the Google credentials path, and your sheet option from step 2.
+Fill in your iRacing OAuth `IRACING_CLIENT_ID` / `IRACING_CLIENT_SECRET`, your
+iRacing email/password, your `IRACING_CUST_ID` (on your iRacing profile page),
+the Google credentials path, and your sheet option from step 2.
 
 ## 4. Run
 
