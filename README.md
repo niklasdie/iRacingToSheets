@@ -33,17 +33,36 @@ sim box, then analyse it anywhere — parsing is plain file I/O and works on mac
 > `iracing_oauth.py`) for the day registration reopens, but it is not wired into
 > `main.py`.
 
+Works on **Windows and macOS**.
+
+## Quick start (easiest)
+
+1. **Capture telemetry:** in iRacing, press **Alt+T** in-car to log telemetry.
+   Drive. iRacing writes a `.ibt` to `Documents/iRacing/telemetry/`.
+2. **Set up Google Sheets once** (section 3 below) and copy `.env.example`
+   to `.env`.
+3. **Run it:**
+   - **Windows:** double-click **`run.bat`** (first run installs everything).
+   - **macOS:** double-click **`run.command`**, or `./run.command` in a terminal.
+
+With no arguments it finds your **newest** `.ibt` automatically (including
+Documents folders redirected into OneDrive on Windows). That's it.
+
 ## 1. Capture telemetry in the sim
 
 In iRacing, enable telemetry logging (press **Alt+T** in-car to toggle disk
 logging, or set it always-on). Drive your session; iRacing writes a `.ibt` to
-`Documents/iRacing/telemetry/`. Copy that file to wherever you run this script.
+`Documents/iRacing/telemetry/`. On Windows the script finds it for you; on
+macOS, copy the file over (or set `IRACING_TELEMETRY_DIR`).
 
 ## 2. Install
 
+The launchers (`run.bat` / `run.command`) do this automatically. To do it by
+hand:
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv            # "python" on Windows
+source .venv/bin/activate        # .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 ```
 
@@ -79,10 +98,18 @@ than `~/Documents/iRacing/telemetry`.
 
 ## 5. Run
 
+Via the launcher (`run.bat` on Windows, `./run.command` on macOS) or directly
+with `python main.py`. Any arguments after the launcher are passed through,
+e.g. `run.bat --list`.
+
 ```bash
+python main.py                       # newest .ibt found automatically
 python main.py path/to/session.ibt   # a specific telemetry file
-python main.py                       # newest .ibt in IRACING_TELEMETRY_DIR
+python main.py --list                # show every .ibt it can find, then exit
+python main.py --dry-run             # parse + analyse, print to console, no upload
 ```
+
+Use `--dry-run` to check the analysis without needing Google set up yet.
 
 ## Notes
 
