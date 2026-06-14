@@ -18,6 +18,7 @@ from ibt_client import IBTSession
 import ibt_analysis as A
 import stints
 import strategy
+import race_sim
 from sheets import SheetWriter, df_to_values
 
 
@@ -26,10 +27,19 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("ibt_file", nargs="?", help="Path to a .ibt file (default: newest found).")
     p.add_argument("--list", action="store_true", help="List .ibt files that can be found, then exit.")
     p.add_argument("--dry-run", action="store_true", help="Parse and analyse but do not upload.")
-    p.add_argument("--race-laps", type=int, help="Project strategy for a race of this many laps.")
-    p.add_argument("--race-minutes", type=float, help="Project strategy for a timed race (minutes).")
+    p.add_argument("--race-laps", type=int, help="Race length in laps (strategy + simulation).")
+    p.add_argument("--race-minutes", type=float, help="Race length in minutes (timed race).")
+    p.add_argument("--race-hours", type=float, help="Race length in hours (e.g. 6 for a 6h race).")
     p.add_argument("--margin-laps", type=float, help="Fuel safety reserve in laps (default 0.3).")
-    p.add_argument("--pit-loss", type=float, help="Seconds lost per stop, for timed-race lap estimate (default 30).")
+    p.add_argument("--pit-loss", type=float, help="Seconds lost per pit stop (default 30).")
+    p.add_argument("--deg-per-lap", type=float, help="Override degradation (s/lap) for the race sim.")
+    p.add_argument("--pace-offset", type=float, help="Add to fresh-lap pace in the sim (+ = saving/slower).")
+    p.add_argument("--max-stint-minutes", type=float, help="Cap stint length by time (tyre/driver limit).")
+    p.add_argument("--drivers", type=int, help="Number of drivers (endurance), for stints-per-driver.")
+    p.add_argument("--traffic-loss", type=float, help="Seconds added per green lap from traffic (default 0).")
+    p.add_argument("--safety-cars", type=int, help="Expected safety-car periods, for sensitivity (default 0).")
+    p.add_argument("--sc-minutes", type=float, help="Minutes per safety-car period (default 5).")
+    p.add_argument("--sc-pit-discount", type=float, help="Fraction of pit loss still paid under SC (default 0.4).")
     return p.parse_args()
 
 
@@ -115,6 +125,14 @@ def build_tabs(session, opts) -> tuple:
         tabs.append(("Strategy", strategy.project(
             session, lap_df, stats, opts["race_laps"], opts["race_minutes"],
             opts["margin_laps"], opts["pit_loss_s"])))
+        tabs.append(("Race Sim", race_sim.simulate(session, lap_df, stats, {
+            "race_laps": opts["race_laps"], "race_minutes": opts["race_minutes"],
+            "margin_laps": opts["margin_laps"], "pit_loss": opts["pit_loss_s"],
+            "deg": opts["deg"], "pace_offset": opts["pace_offset"],
+            "max_stint_minutes": opts["max_stint_minutes"], "drivers": opts["drivers"],
+            "traffic": opts["traffic"], "safety_cars": opts["safety_cars"],
+            "sc_minutes": opts["sc_minutes"], "sc_pit_discount": opts["sc_pit_discount"],
+        })))
 
     if not trace_df.empty:
         tabs.append(("Best Lap Telemetry", df_to_values(trace_df)))
@@ -147,11 +165,22 @@ def main() -> None:
     if not args.dry_run:
         check_google_config(cfg)
 
+    race_minutes = args.race_minutes
+    if race_minutes is None and args.race_hours is not None:
+        race_minutes = args.race_hours * 60
     opts = {
         "race_laps": args.race_laps if args.race_laps is not None else cfg.race_laps,
-        "race_minutes": args.race_minutes if args.race_minutes is not None else cfg.race_minutes,
+        "race_minutes": race_minutes if race_minutes is not None else cfg.race_minutes,
         "margin_laps": args.margin_laps if args.margin_laps is not None else cfg.fuel_margin_laps,
         "pit_loss_s": args.pit_loss if args.pit_loss is not None else cfg.pit_loss_s,
+        "deg": args.deg_per_lap if args.deg_per_lap is not None else cfg.sim_deg_per_lap,
+        "pace_offset": args.pace_offset if args.pace_offset is not None else cfg.sim_pace_offset,
+        "max_stint_minutes": args.max_stint_minutes if args.max_stint_minutes is not None else cfg.max_stint_minutes,
+        "drivers": args.drivers if args.drivers is not None else cfg.drivers,
+        "traffic": args.traffic_loss if args.traffic_loss is not None else cfg.traffic_loss,
+        "safety_cars": args.safety_cars if args.safety_cars is not None else cfg.safety_cars,
+        "sc_minutes": args.sc_minutes if args.sc_minutes is not None else cfg.sc_minutes,
+        "sc_pit_discount": args.sc_pit_discount if args.sc_pit_discount is not None else cfg.sc_pit_discount,
     }
 
     path = resolve_ibt(cfg, args.ibt_file)

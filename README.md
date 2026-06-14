@@ -25,6 +25,8 @@ Drop in one iRacing **`.ibt` telemetry file** and get a rich, shareable **Google
 - 🧮 **Advanced analytics, not just lap times** — consistency (std dev), degradation trend per stint, fuel-per-lap, optimal pace windows.
 - 🛞 **Proper stint detection** — splits pit-to-pit (one tank), and correctly separates stints across **refuels** and **driver changes**.
 - ⛽ **Fuel-to-finish & pit strategy** — laps per tank, fuel needed, minimum stops, and a **pit window** (earliest–latest lap) + fill for every stop.
+- 🔮 **Full-race simulator** — no time to run a 6-hour race? Extrapolate one from a short practice stint: set the race length and it compares strategies and recommends stops, target lap times, and fuel.
+- 🚦 **Traffic & safety-car sensitivity** — model a per-lap traffic penalty and see how expected safety cars shift your laps, optimal stops, and the time you save by pitting under yellow.
 - 🔎 **Auto session detection** — race / endurance vs qualifying, with the right analytics for each.
 - 📈 **Best-lap telemetry trace** — Speed / Throttle / Brake / Gear / Steering vs lap distance, ready to chart.
 - 🖱️ **One-click** on Windows & macOS — double-click a launcher; it finds your newest telemetry file automatically.
@@ -43,6 +45,7 @@ Each run writes a Google Sheet with the tabs relevant to the session:
 | **My Laps** | always | Lap-by-lap times, the **stint** per lap, lap **type** (out/green/in/pit), fuel used, max speed, `Δ Best` |
 | **Stints** | race / endurance | Per stint: laps, duration, best/avg/median, **consistency**, **degradation** (s/lap), fuel used & per lap, **refuel** amount, pit-stop summary (+ *possible driver change* flag) |
 | **Strategy** | race / endurance | **Fuel to finish**, **minimum pit stops**, and per stop a target lap + **pit window** + fuel to add |
+| **Race Sim** | race / endurance | **Full-race simulation** for an adjustable race length — compares pit-stop strategies and recommends one, with a stint-by-stint plan, target lap times, fuel and timing |
 | **Qualifying** | qualifying | Flying-lap breakdown with gaps to your best, plus starting fuel |
 | **Best Lap Telemetry** | always | Downsampled trace of your fastest clean lap — chart it to find where you gain/lose time |
 
@@ -123,21 +126,32 @@ python main.py                       # newest .ibt found automatically
 python main.py path/to/session.ibt   # a specific telemetry file
 python main.py --list                # show every .ibt it can find, then exit
 python main.py --dry-run             # parse + analyse, print to console, no upload
-python main.py --race-laps 50        # project pit strategy for a 50-lap race
-python main.py --race-minutes 120    # ...or a 2-hour timed race
+python main.py --race-laps 50        # strategy + simulation for a 50-lap race
+python main.py --race-hours 6        # simulate a 6-hour endurance race
+python main.py --race-hours 6 --deg-per-lap 0.08 --drivers 3   # tuned sim
 ```
 
 | Flag | Purpose |
 |---|---|
 | `--list` | List the `.ibt` files the tool can find |
 | `--dry-run` | Analyse and print to console; don't upload |
-| `--race-laps N` | Project strategy for an N-lap race |
-| `--race-minutes M` | Project strategy for a timed race |
+| `--race-laps N` | Race length in laps (strategy + simulation) |
+| `--race-minutes M` / `--race-hours H` | Race length for a timed race |
 | `--margin-laps X` | Fuel safety reserve, in laps (default `0.3`) |
-| `--pit-loss S` | Seconds lost per stop, for timed-race estimates (default `30`) |
+| `--pit-loss S` | Seconds lost per pit stop (default `30`) |
+| `--deg-per-lap X` | Override tyre degradation in the sim (s/lap) |
+| `--pace-offset S` | Add to fresh-lap pace in the sim (+ = saving) |
+| `--max-stint-minutes M` | Cap stint length by time (tyre/driver limit) |
+| `--drivers N` | Driver count (endurance) → stints per driver |
+| `--traffic-loss S` | Seconds added per green lap from traffic |
+| `--safety-cars N` | Expected safety-car periods (sensitivity range) |
+| `--sc-minutes M` | Minutes per safety-car period (default `5`) |
+| `--sc-pit-discount F` | Fraction of pit loss still paid under SC (default `0.4`) |
 
-Strategy defaults can also live in `.env` (`RACE_LAPS`, `RACE_MINUTES`,
-`FUEL_MARGIN_LAPS`, `PIT_LOSS_SECONDS`); CLI flags override them.
+Defaults can also live in `.env` (`RACE_LAPS`, `RACE_MINUTES`, `RACE_HOURS`,
+`FUEL_MARGIN_LAPS`, `PIT_LOSS_SECONDS`, `SIM_DEG_PER_LAP`, `SIM_PACE_OFFSET`,
+`MAX_STINT_MINUTES`, `DRIVERS`, `TRAFFIC_LOSS`, `SAFETY_CARS`, `SC_MINUTES`,
+`SC_PIT_DISCOUNT`); CLI flags override them.
 
 ---
 
@@ -154,6 +168,17 @@ Strategy defaults can also live in `.env` (`RACE_LAPS`, `RACE_MINUTES`,
 - **Strategy** combines measured fuel burn, green-lap pace, tank capacity
   (`DriverCarFuelMaxLtr × DriverCarMaxFuelPct`) and race length (from the file or
   your `--race-*` override) into a fuel-to-finish and pit-window plan.
+- **Race Sim** extrapolates a full race from your short run: each stint runs at
+  `fresh pace + degradation × lap`, capped by fuel (and an optional max stint
+  time); it simulates several pit-stop counts and recommends the one that
+  **completes the most laps** (timed race) or **finishes soonest** (lap race) —
+  balancing tyre degradation against pit-stop time loss.
+- **Traffic** is a per-lap penalty added to green pace, so it feeds the whole
+  optimisation. **Safety cars** are shown as a sensitivity range: each period
+  neutralises the race at ~1.6× lap time (costing laps), but pitting under yellow
+  only pays a fraction of the normal pit loss — the table shows the net effect on
+  total laps / finish time and the pit time saved. It's a planning baseline that
+  still assumes otherwise-steady running (no weather, no incidents).
 
 ## 🏁 Why `.ibt` telemetry files?
 
