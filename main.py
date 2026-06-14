@@ -1,78 +1,71 @@
-"""Fetch one iRacing session, analyse it, and upload the result to Google Sheets.
+"""Analyse one iRacing `.ibt` telemetry file and upload it to Google Sheets.
 
 Run once and exit:
 
-    python main.py                      # your most recent race
-    python main.py --subsession 12345   # a specific subsession id
-    python main.py --cust-id 654321     # analyse a different driver
+    python main.py path/to/session.ibt   # a specific telemetry file
+    python main.py                        # newest .ibt in IRACING_TELEMETRY_DIR
+
+Telemetry comes from the local iRacing SDK (.ibt files), which is unaffected by
+the web Data API's OAuth pause. Enable telemetry logging in the sim, copy the
+.ibt off the Windows box, and point this at it.
 """
 import argparse
+import glob
+import os
 
 from config import load_config
-from iracing_client import IRacingClient
-import analysis
+from ibt_client import IBTSession
+import ibt_analysis as A
 from sheets import SheetWriter, df_to_values
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="iRacing session → Google Sheets.")
-    p.add_argument("--subsession", type=int, help="Subsession id (default: your latest race).")
-    p.add_argument("--cust-id", type=int, help="Driver to analyse (default: IRACING_CUST_ID).")
+    p = argparse.ArgumentParser(description="iRacing .ibt telemetry → Google Sheets.")
+    p.add_argument("ibt_file", nargs="?", help="Path to a .ibt file (default: newest in telemetry dir).")
     return p.parse_args()
+
+
+def find_latest_ibt(directory: str) -> str:
+    files = glob.glob(os.path.join(os.path.expanduser(directory), "*.ibt"))
+    if not files:
+        raise SystemExit(
+            f"No .ibt files found in {directory}. Pass a file path explicitly, "
+            "or set IRACING_TELEMETRY_DIR in .env."
+        )
+    return max(files, key=os.path.getmtime)
 
 
 def main() -> None:
     args = parse_args()
     cfg = load_config()
-    cust_id = args.cust_id or cfg.iracing_cust_id
 
-    client = IRacingClient(
-        cfg.iracing_client_id,
-        cfg.iracing_client_secret,
-        cfg.iracing_email,
-        cfg.iracing_password,
-        cfg.token_cache_path,
-    )
+    path = args.ibt_file or find_latest_ibt(cfg.telemetry_dir)
+    if not os.path.exists(path):
+        raise SystemExit(f"File not found: {path}")
 
-    # 1. Decide which session to pull.
-    if args.subsession:
-        subsession_id = args.subsession
-    else:
-        if not cust_id:
-            raise SystemExit(
-                "Latest-race mode needs a customer id. "
-                "Set IRACING_CUST_ID in .env or pass --cust-id, "
-                "or pass --subsession <id>."
-            )
-        subsession_id = client.latest_subsession_id(cust_id)
-    print(f"Fetching subsession {subsession_id} ...")
+    print(f"Parsing {path} ...")
+    session = IBTSession(path)
+    try:
+        field_df = A.field_results_df(session.session_info)
+        laps_df = A.my_laps_df(session)
+        stats = A.lap_stats(laps_df)
+        best_lap = A.best_clean_lap(laps_df)
+        trace_df = A.best_lap_trace_df(session, best_lap)
+        summary = A.summary_rows(session.session_info, stats, best_lap, laps_df)
+        title = A.build_title(session.session_info)
+    finally:
+        session.close()
 
-    # 2. Fetch + analyse.
-    result = client.session_result(subsession_id)
-    race = analysis.pick_race_simsession(result)
-    field_df = analysis.field_results_df(race)
-
-    my_laps = None
-    stats = {}
-    if cust_id:
-        laps = client.lap_data(subsession_id, cust_id, race.get("simsession_number", 0))
-        my_laps = analysis.my_laps_df(laps, cust_id)
-        stats = analysis.lap_stats(my_laps)
-    else:
-        print("No customer id set — skipping per-lap analysis (field results only).")
-
-    summary = analysis.summary_rows(result, race, cust_id, stats)
-
-    # 3. Upload.
     print("Uploading to Google Sheets ...")
     writer = SheetWriter(cfg.google_creds_path)
-    sh = writer.open_or_create(
-        cfg.google_sheet_id, analysis.build_title(result), cfg.google_share_email
-    )
+    sh = writer.open_or_create(cfg.google_sheet_id, title, cfg.google_share_email)
     writer.write_tab(sh, "Summary", summary)
-    writer.write_tab(sh, "Field Results", df_to_values(field_df))
-    if my_laps is not None and not my_laps.empty:
-        writer.write_tab(sh, "My Laps", df_to_values(my_laps))
+    if not field_df.empty:
+        writer.write_tab(sh, "Field Results", df_to_values(field_df))
+    if not laps_df.empty:
+        writer.write_tab(sh, "My Laps", df_to_values(laps_df))
+    if not trace_df.empty:
+        writer.write_tab(sh, "Best Lap Telemetry", df_to_values(trace_df))
     writer.remove_default_sheet(sh)
 
     print(f"Done → {sh.url}")
