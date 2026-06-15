@@ -13,7 +13,7 @@ import math
 
 import pandas as pd
 
-from ibt_analysis import format_time, race_session
+from .laps import format_time, race_session
 
 DEFAULT_MARGIN_LAPS = 0.3   # safety fuel kept in reserve, expressed in laps
 DEFAULT_PIT_LOSS_S = 30.0   # assumed time lost per stop (timed-race lap estimate)

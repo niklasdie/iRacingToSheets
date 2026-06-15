@@ -61,3 +61,14 @@ class SheetWriter:
                 sh.del_worksheet(ws)
         except gspread.WorksheetNotFound:
             pass
+
+    def highlight_inputs(self, sh, tab_name: str, ranges: list):
+        """Tint the editable input cells so it's obvious what to change."""
+        try:
+            ws = sh.worksheet(tab_name)
+        except gspread.WorksheetNotFound:
+            return
+        fmt = {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.6},
+               "textFormat": {"bold": True}}
+        for rng in ranges:
+            ws.format(rng, fmt)

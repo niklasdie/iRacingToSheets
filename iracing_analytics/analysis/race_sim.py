@@ -17,8 +17,8 @@ import math
 
 import numpy as np
 
-from ibt_analysis import format_time
-import strategy
+from .laps import format_time
+from . import strategy
 
 SC_PACE_FACTOR = 1.6   # a lap under safety car takes ~1.6× a green lap
 

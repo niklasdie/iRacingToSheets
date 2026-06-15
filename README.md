@@ -13,10 +13,12 @@
 
 ---
 
-Drop in one iRacing **`.ibt` telemetry file** and get a rich, shareable **Google Sheet** built for serious race prep: stint-by-stint breakdowns, pace & tyre **degradation**, lap **consistency**, **fuel burn**, and a complete **fuel-to-finish & pit-window strategy**. It even **auto-detects** whether the session is a race, an endurance stint, or qualifying, and tailors the analytics to match.
+Drop in one iRacing **`.ibt` telemetry file** and get a rich, shareable **Google Sheet** built for serious race prep: stint-by-stint breakdowns, pace & tyre **degradation**, lap **consistency**, **fuel burn**, and a fully **interactive race-strategy simulator** — fuel-to-finish, pit windows, traffic and safety-car sensitivity — that you adjust **right in the sheet**. It even **auto-detects** whether the session is a race, an endurance stint, or qualifying, and tailors the analytics to match.
 
 > **Capture telemetry on your sim rig → run one command → open the sheet.**
 > No iRacing web API, no OAuth, no account hassle — just the data the sim already writes to disk.
+
+> 🧩 **Everything lives in the sheet.** The file is parsed **once**; the Simulator tab is built from live formulas, so you can change the race length, pit loss, degradation, traffic, safety cars and more **in the sheet** and watch the strategy recompute instantly — no re-running the script.
 
 ---
 
@@ -25,8 +27,8 @@ Drop in one iRacing **`.ibt` telemetry file** and get a rich, shareable **Google
 - 🧮 **Advanced analytics, not just lap times** — consistency (std dev), degradation trend per stint, fuel-per-lap, optimal pace windows.
 - 🛞 **Proper stint detection** — splits pit-to-pit (one tank), and correctly separates stints across **refuels** and **driver changes**.
 - ⛽ **Fuel-to-finish & pit strategy** — laps per tank, fuel needed, minimum stops, and a **pit window** (earliest–latest lap) + fill for every stop.
-- 🔮 **Full-race simulator** — no time to run a 6-hour race? Extrapolate one from a short practice stint: set the race length and it compares strategies and recommends stops, target lap times, and fuel.
-- 🚦 **Traffic & safety-car sensitivity** — model a per-lap traffic penalty and see how expected safety cars shift your laps, optimal stops, and the time you save by pitting under yellow.
+- 🔮 **Interactive race simulator (in the sheet)** — no time to run a 6-hour race? Extrapolate one from a short practice stint. Edit the race length, pit loss, degradation and more **in editable cells**; the strategy comparison, fuel-to-finish, pit count and stint plan recalculate live via formulas — no re-running anything.
+- 🚦 **Traffic & safety-car sensitivity** — a per-lap traffic penalty feeds the whole sim, and a safety-car table shows how expected yellows shift your laps and the time you save by pitting under SC — all recalculating in the sheet.
 - 🔎 **Auto session detection** — race / endurance vs qualifying, with the right analytics for each.
 - 📈 **Best-lap telemetry trace** — Speed / Throttle / Brake / Gear / Steering vs lap distance, ready to chart.
 - 🖱️ **One-click** on Windows & macOS — double-click a launcher; it finds your newest telemetry file automatically.
@@ -44,8 +46,7 @@ Each run writes a Google Sheet with the tabs relevant to the session:
 | **Field Results** | always | Every driver: best & last lap, laps, incidents, iRating |
 | **My Laps** | always | Lap-by-lap times, the **stint** per lap, lap **type** (out/green/in/pit), fuel used, max speed, `Δ Best` |
 | **Stints** | race / endurance | Per stint: laps, duration, best/avg/median, **consistency**, **degradation** (s/lap), fuel used & per lap, **refuel** amount, pit-stop summary (+ *possible driver change* flag) |
-| **Strategy** | race / endurance | **Fuel to finish**, **minimum pit stops**, and per stop a target lap + **pit window** + fuel to add |
-| **Race Sim** | race / endurance | **Full-race simulation** for an adjustable race length — compares pit-stop strategies and recommends one, with a stint-by-stint plan, target lap times, fuel and timing |
+| **Simulator** ⭐ | race / endurance | **Interactive** — editable inputs (race length, pit loss, traffic, safety cars…) drive live formulas: key results, a **strategy comparison** with the optimum flagged, **fuel-to-finish**, **pit count**, and **safety-car / traffic sensitivity**. Adjust in the sheet; it recomputes instantly. |
 | **Qualifying** | qualifying | Flying-lap breakdown with gaps to your best, plus starting fuel |
 | **Best Lap Telemetry** | always | Downsampled trace of your fastest clean lap — chart it to find where you gain/lose time |
 
@@ -118,8 +119,11 @@ sensible defaults.
 
 ## ⚙️ Usage & options
 
-Run via a launcher (`run.bat` / `./run.command`) or directly with `python main.py`.
-Arguments after the launcher are passed through (e.g. `run.bat --dry-run`).
+**You don't need any of these flags for day-to-day use** — just run it and adjust
+everything in the **Simulator** tab of the sheet. The flags below only set the
+*starting values* of those editable cells (handy if you always run the same
+series). Run via a launcher (`run.bat` / `./run.command`) or `python main.py`;
+arguments after the launcher are passed through (e.g. `run.bat --dry-run`).
 
 ```bash
 python main.py                       # newest .ibt found automatically
@@ -165,14 +169,15 @@ Defaults can also live in `.env` (`RACE_LAPS`, `RACE_MINUTES`, `RACE_HOURS`,
 - **Session type** uses the file's `SessionType` first, then heuristics (lap
   count, pit stops, refuelling) — so a qualifying *simulation* run inside a
   practice session is still recognised as qualifying-style.
-- **Strategy** combines measured fuel burn, green-lap pace, tank capacity
-  (`DriverCarFuelMaxLtr × DriverCarMaxFuelPct`) and race length (from the file or
-  your `--race-*` override) into a fuel-to-finish and pit-window plan.
-- **Race Sim** extrapolates a full race from your short run: each stint runs at
-  `fresh pace + degradation × lap`, capped by fuel (and an optional max stint
-  time); it simulates several pit-stop counts and recommends the one that
-  **completes the most laps** (timed race) or **finishes soonest** (lap race) —
-  balancing tyre degradation against pit-stop time loss.
+- **Simulator** is the interactive heart of the sheet. The script parses the file
+  **once** and writes the measured values (fresh pace, degradation, fuel burn,
+  `DriverCarFuelMaxLtr × DriverCarMaxFuelPct` tank) plus your strategy parameters
+  as **editable cells**, then expresses every result as a **Google Sheets
+  formula**. Edit any input and the strategy comparison, fuel-to-finish, pit
+  count, and stint sizing recompute live. The model: each stint runs at
+  `fresh pace + degradation × lap`, capped by fuel; it compares several pit-stop
+  counts and flags the one that **completes the most laps** (timed) or **finishes
+  soonest** (lap race) — balancing degradation against pit-stop time loss.
 - **Traffic** is a per-lap penalty added to green pace, so it feeds the whole
   optimisation. **Safety cars** are shown as a sensitivity range: each period
   neutralises the race at ~1.6× lap time (costing laps), but pitting under yellow
@@ -199,6 +204,31 @@ analyse anywhere — parsing is plain file I/O and runs on macOS too.
 > `main.py`.
 
 ---
+
+## 🗂️ Project structure
+
+```text
+iRacingToSheets/
+├── main.py                 # entry point — just calls the package CLI
+├── run.bat / run.command   # one-click launchers (Windows / macOS)
+├── requirements.txt · .env.example · LICENSE · README.md
+└── iracing_analytics/      # the package
+    ├── cli.py              # argument parsing + orchestration
+    ├── config.py           # loads settings from .env
+    ├── ingest/             # data sources
+    │   ├── ibt.py          # .ibt telemetry reader (active)
+    │   ├── web_api.py      # OAuth web /data API client (alternative)
+    │   └── oauth.py        # OAuth2 token handling
+    ├── analysis/           # the analytics
+    │   ├── laps.py         # per-lap table, field results, pace stats, trace
+    │   ├── stints.py       # stint detection + session classification
+    │   ├── strategy.py     # fuel-to-finish + pit windows
+    │   ├── race_sim.py     # console race-sim helpers / measured values
+    │   └── web_results.py  # results parsing for the web API path
+    └── output/             # writing the sheet
+        ├── sheets.py       # gspread upload helpers
+        └── simulator.py    # builds the interactive Simulator tab (formulas)
+```
 
 ## 📝 Notes
 

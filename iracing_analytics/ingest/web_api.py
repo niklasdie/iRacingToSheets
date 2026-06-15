@@ -2,7 +2,7 @@
 
 Replaces the legacy `iracingdataapi` library, which authenticated via the
 now-removed email/password `/auth` endpoint. We call the Data API directly with
-an OAuth2 Bearer token (see iracing_oauth.py) and handle the API's two quirks:
+an OAuth2 Bearer token (see ingest/oauth.py) and handle the API's two quirks:
 
   1. Most endpoints return {"link": <presigned S3 url>}; the real payload is
      fetched from that link.
@@ -13,7 +13,7 @@ Docs: https://oauth.iracing.com/oauth2/book/data_api_workflow.html
 """
 import requests
 
-from iracing_oauth import IRacingOAuth, IRacingAuthError
+from .oauth import IRacingOAuth, IRacingAuthError
 
 BASE_URL = "https://members-ng.iracing.com"
 

@@ -1,7 +1,7 @@
 """Stint detection/analytics and session-type classification for endurance runs.
 
 A *stint* is the run of laps between pit stops (typically one tank). Stints are
-split at detected pit stops (see ibt_analysis.detect_stops); each stop carries
+split at detected pit stops (see laps.detect_stops); each stop carries
 its fuel delta and duration, so refuels and long service/driver-change stops are
 distinguished. The session is also auto-classified (qualifying vs race/endurance
 vs long run) so the right analytics are produced.
@@ -9,7 +9,7 @@ vs long run) so the right analytics are produced.
 import numpy as np
 import pandas as pd
 
-from ibt_analysis import format_time
+from .laps import format_time
 
 DRIVER_CHANGE_MIN_S = 45.0   # stops at/above this are flagged as possible driver swaps
 REFUEL_MIN_L = 1.0           # fuel added above this counts as a real refuel

@@ -2,7 +2,7 @@
 
 The active pipeline reads local `.ibt` telemetry files, which need no iRacing
 credentials. The iRacing OAuth fields are kept (optional) only for the
-alternative web `/data` API path in iracing_client.py.
+alternative web `/data` API path in ingest/web_api.py.
 """
 from dataclasses import dataclass
 from dotenv import load_dotenv
