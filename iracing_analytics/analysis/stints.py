@@ -1,10 +1,12 @@
 """Stint detection/analytics and session-type classification for endurance runs.
 
 A *stint* is the run of laps between pit stops (typically one tank). Stints are
-split at detected pit stops (see laps.detect_stops); each stop carries
-its fuel delta and duration, so refuels and long service/driver-change stops are
-distinguished. The session is also auto-classified (qualifying vs race/endurance
-vs long run) so the right analytics are produced.
+split at detected pit stops (see laps.detect_stops); each stop carries its fuel
+delta, its standing time (stationary in the box) and its full pit-lane time
+(limiter on→off), so refuels and long service/driver-change stops are
+distinguished and the in-lane vs stationary split is visible. The session is
+also auto-classified (qualifying vs race/endurance vs long run) so the right
+analytics are produced.
 """
 import numpy as np
 import pandas as pd
@@ -42,14 +44,18 @@ def is_team_session(session_info: dict) -> bool:
 def stop_label(stop: dict, team: bool) -> str:
     if not stop:
         return ""
-    dur = stop.get("duration") or 0
+    stand = stop.get("duration") or 0          # stationary in the box
+    lane = stop.get("pit_duration")            # full pit-lane (limiter-on) time
     added = stop.get("fuel_added")
-    bits = [f"{dur:.0f}s"]
+    bits = []
+    if lane:
+        bits.append(f"{lane:.0f}s lane")
+    bits.append(f"{stand:.0f}s standing")
     if added is not None and added > REFUEL_MIN_L:
         bits.append(f"+{added:.0f}L")
     elif added is not None and added <= REFUEL_MIN_L:
         bits.append("splash")
-    if dur >= DRIVER_CHANGE_MIN_S and team:
+    if stand >= DRIVER_CHANGE_MIN_S and team:
         bits.append("driver change?")
     return ", ".join(bits)
 

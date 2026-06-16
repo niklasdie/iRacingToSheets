@@ -85,8 +85,13 @@ def detect_stops(session) -> list:
     """Detect pit stops as runs stationary in the pit box.
 
     Uses PlayerCarInPitStall when present, else OnPitRoad + near-zero speed.
-    Each stop records its duration and the fuel added across it (so refuels and
-    long service/driver-change stops can be told apart).
+    Each stop records two durations so it's clear where the time went:
+      • ``duration``     – standing time only (stationary in the box)
+      • ``pit_duration`` – full pit-lane time, from entering to leaving pit road
+                           (i.e. the limiter-on window around the stop); the slow
+                           in/out laps are ``pit_duration - duration``.
+    Plus the fuel added across it, so refuels and long service/driver-change
+    stops can be told apart. ``pit_duration`` is None if OnPitRoad is unavailable.
     """
     t = session.channel("SessionTime")
     if not t:
@@ -117,9 +122,20 @@ def detect_stops(session) -> list:
                 before = fuel[a - 1] if (fuel and a > 0) else (fuel[a] if fuel else None)
                 after = fuel[b + 1] if (fuel and b + 1 < n) else (fuel[b] if fuel else None)
                 added = (after - before) if (after is not None and before is not None) else None
+                # Widen to the pit-road (limiter-on) window bracketing the stop:
+                # back to where OnPitRoad became true, forward to where it ends.
+                pit_duration = None
+                if on_pit:
+                    entry, leave = a, b
+                    while entry > 0 and bool(on_pit[entry - 1]):
+                        entry -= 1
+                    while leave + 1 < n and bool(on_pit[leave + 1]):
+                        leave += 1
+                    pit_duration = t[leave] - t[entry]
                 stops.append({
                     "start": a, "end": b, "lap": lap[a] if lap else None,
-                    "duration": duration, "fuel_before": before,
+                    "duration": duration, "pit_duration": pit_duration,
+                    "fuel_before": before,
                     "fuel_after": after, "fuel_added": added,
                 })
         else:
