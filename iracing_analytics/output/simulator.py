@@ -7,12 +7,23 @@ them. The user then adjusts inputs in the sheet and everything recalculates —
 no re-running the script, no re-parsing the file.
 
 Layout is fixed so the formulas can reference cells by address:
-  B4..B12   strategy inputs        B15..B18  measured (editable)
-  B21..B28  key results            A32:J36   strategy comparison
-  A40:D43   safety-car sensitivity A47:C49   traffic sensitivity
+  B4..B13   strategy inputs        B15..B18  measured (editable)
+  B21..B28  key results            B29,D29   fuel/pace trade-off (editable)
+  A32:J36   strategy comparison    A40:D43   safety-car sensitivity
+  A47:C49   traffic sensitivity
 """
 SC_PACE_FACTOR = 1.6
-INPUT_RANGES = ["B4:B12", "B15:B18"]   # highlighted as "edit me" cells
+# Strategy-comparison sweep: how far the fuel target is allowed to move off the
+# measured burn, and the lap-time it costs/gains at that extreme. Defaults the
+# user can edit in the sheet (B29 / D29). Saving 0.5 L/lap ≈ 0.8 s/lap slower.
+FUEL_RANGE_DEFAULT_L = 0.4
+PACE_RANGE_DEFAULT_S = 0.8
+# Safety reserve: fuel that must still be in the tank when you reach the pit
+# (limits stint length), plus an extra lap carried for the end of a timed race —
+# the last lap can be started after the clock hits 0 (the leader took the white
+# with ~1 s left), so you must be able to finish one more lap than the time math.
+END_BUFFER_DEFAULT_LAPS = 1
+INPUT_RANGES = ["B4:B13", "B15:B18", "B29", "D29"]   # highlighted as "edit me" cells
 
 
 def measured(session, lap_df, stats):
@@ -47,13 +58,13 @@ def build(meas: dict | None, d: dict):
     rows.append(["Race length — hours", d["hours"]])                       # B4
     rows.append(["Race length — laps (0 = use hours)", d["race_laps"]])    # B5
     rows.append(["Pit loss per stop (s)", d["pit_loss"]])                  # B6
-    rows.append(["Fuel margin (laps)", d["margin"]])                       # B7
+    rows.append(["Pit reserve (L, min in tank at pit)", d["margin"]])      # B7
     rows.append(["Traffic (s/lap)", d["traffic"]])                        # B8
     rows.append(["Safety cars (expected)", d["safety_cars"]])             # B9
     rows.append(["SC minutes each", d["sc_minutes"]])                      # B10
     rows.append(["SC pit discount (0-1)", d["discount"]])                  # B11
     rows.append(["Drivers", d["drivers"]])                                 # B12
-    rows.append(["", ""])
+    rows.append(["End-of-race buffer (laps)", END_BUFFER_DEFAULT_LAPS])    # B13
     rows.append(["MEASURED (from telemetry — editable)", ""])
     rows.append(["Fresh-tyre pace (s/lap)", meas["p0"]])                   # B15
     rows.append(["Degradation (s/lap)", meas["deg"]])                      # B16
@@ -62,36 +73,39 @@ def build(meas: dict | None, d: dict):
     rows.append(["", ""])
     rows.append(["KEY RESULTS (auto)", ""])
     rows.append(["Green pace (s/lap)", "=B15+B8"])                                          # B21
-    rows.append(["Stint length — fuel (laps)", "=MAX(1,FLOOR((B18-B7*B17)/B17))"])          # B22
+    rows.append(["Stint length — fuel (laps)", "=MAX(1,FLOOR((B18-B7)/B17))"])              # B22
     rows.append(["Avg lap @ full stint (s)", "=B21+B16*(B22-1)/2"])                         # B23
     rows.append(["Race target laps", "=IF(B5>0,B5,ROUND((B4*3600-MAX(0,CEILING((B4*3600/B23)/B22)-1)*B6)/B23))"])  # B24
-    rows.append(["Minimum pit stops", "=MAX(0,CEILING(B24/B22)-1)"])                        # B25
-    rows.append(["Fuel to finish (L)", "=ROUND(B24*B17+B7*B17,1)"])                         # B26
+    # Stops & fuel cover the laps you must carry fuel for: a timed race can run one
+    # extra lap (B13) past the time math, so add it; a lap race ends on an exact
+    # count. Reserve B7 (L) is the fuel still in the tank when you reach the pit.
+    rows.append(["Minimum pit stops", "=MAX(0,CEILING((B24+IF(B5>0,0,B13))/B22)-1)"])       # B25
+    rows.append(["Fuel to finish (L)", "=ROUND((B24+IF(B5>0,0,B13))*B17+B7,1)"])            # B26
     rows.append(["Race seconds (effective)", "=IF(B5>0,B24*B23,B4*3600)"])                  # B27
     rows.append(["Race time", '=TEXT(B27/86400,"[h]:mm:ss")'])                              # B28
-    rows.append(["", ""])
-    rows.append(["STRATEGY COMPARISON", "timed: most laps wins · lap race: least time wins"])
-    rows.append(["Pit stops", "Stint laps", "Avg lap (s)", "Total laps", "Fuel (L)", "Target fuel (L/lap)", "Finish", "Best", "(calc L)", "(calc s)"])
+    rows.append(["Fuel range ±(L/lap)", FUEL_RANGE_DEFAULT_L,
+                 "Pace range ±(s/lap)", PACE_RANGE_DEFAULT_S])                              # B29 / D29 (editable)
+    rows.append(["STRATEGY COMPARISON", "fuel-save vs lap-time trade-off around your measured burn (Δ0 = telemetry)"])
+    rows.append(["Fuel Δ (L/lap)", "Target fuel (L/lap)", "Lap time (s/lap)", "Stint laps",
+                 "Avg lap (s)", "Pit stops", "Total laps", "Race time", "Best", "(calc s)"])
     for r in range(32, 37):
-        o = r - 32
+        # Sweep the fuel target ±B29 around the measured burn (B17) in even steps.
+        # factor: -1, -0.5, 0, +0.5, +1 — Δ0 is the measured baseline.
+        factor = (r - 34) / 2
         rows.append([
-            f"=$B$25+{o}",                                         # A: pit stops
-            f"=ROUND(I{r})",                                       # B: stint laps (display)
-            f"=ROUND($B$21+$B$16*(I{r}-1)/2,2)",                   # C: avg lap
-            f"=IF($B$5>0,$B$5,ROUND((A{r}+1)*I{r}))",             # D: total laps
-            f"=ROUND(D{r}*$B$17)",                                 # E: fuel needed (total L)
-            # F: fuel/lap to target so each stint (I laps + B7-lap margin) finishes on
-            #    one tank — the fuel-save target needed to reach this row's lap count.
-            f"=ROUND($B$18/(I{r}+$B$7),3)",                        # F: target fuel (L/lap)
-            f'=TEXT(J{r}/86400,"[h]:mm:ss")',                      # G: finish (lap race)
-            f'=IF($B$5>0,IF(J{r}=MIN($J$32:$J$36),"◀ best",""),IF(D{r}=MAX($D$32:$D$36),"◀ best",""))',
-            # I: continuous stint length (laps), capped by fuel; quadratic solves the
-            #    time available per stint against fresh pace + degradation.
-            (f"=IF($B$5>0,$B$5/(A{r}+1),MIN($B$22,IF($B$16=0,"
-             f"(($B$27-A{r}*$B$6)/(A{r}+1))/$B$21,"
-             f"(SQRT(($B$21-$B$16/2)^2+2*$B$16*(($B$27-A{r}*$B$6)/(A{r}+1)))-($B$21-$B$16/2))/$B$16)))"),
-            # J: finish time in seconds (lap race) / race seconds (timed)
-            f"=IF($B$5>0,$B$5*$B$21+$B$16/2*$B$5*($B$5/(A{r}+1)-1)+A{r}*$B$6,$B$27)",
+            f"=ROUND({factor}*$B$29,2)",                                  # A: fuel Δ vs measured (L/lap)
+            f"=ROUND($B$17+A{r},3)",                                      # B: target fuel (centred on B17)
+            # C: less fuel ⇒ off the limit ⇒ slower; ±B29 L maps to ∓D29 s.
+            f"=ROUND($B$21-({factor})*$D$29,3)",                          # C: lap time (s/lap)
+            f"=MAX(1,FLOOR(($B$18-$B$7)/B{r}))",                          # D: stint laps (pit with ≥B7 L left)
+            f"=ROUND(C{r}+$B$16*(D{r}-1)/2,2)",                           # E: avg lap incl. degradation
+            # F: pit stops — timed race fuels for one extra lap (B13) past the time math.
+            f"=IF($B$5>0,MAX(0,CEILING($B$5/D{r})-1),MAX(0,CEILING(($B$27/E{r}+$B$13)/D{r})-1))",  # F: pit stops
+            f"=IF($B$5>0,$B$5,ROUND(($B$27-F{r}*$B$6)/E{r}))",           # G: total laps
+            f'=TEXT(J{r}/86400,"[h]:mm:ss")',                            # H: race time
+            f'=IF($B$5>0,IF(J{r}=MIN($J$32:$J$36),"◀ best",""),IF(G{r}=MAX($G$32:$G$36),"◀ best",""))',  # I: best
+            # J: race seconds — lap race: laps×avg + pit time; timed: fixed race seconds.
+            f"=IF($B$5>0,$B$5*E{r}+F{r}*$B$6,$B$27)",                    # J: race seconds (calc)
         ])
     rows.append(["", ""])
     rows.append(["SAFETY-CAR SENSITIVITY", f"each SC ~1.6x lap; pit under yellow pays the discount only"])
