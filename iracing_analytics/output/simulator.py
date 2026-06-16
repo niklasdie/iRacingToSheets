@@ -8,7 +8,7 @@ no re-running the script, no re-parsing the file.
 
 Layout is fixed so the formulas can reference cells by address:
   B4..B12   strategy inputs        B15..B18  measured (editable)
-  B21..B28  key results            A32:H36   strategy comparison
+  B21..B28  key results            A32:J36   strategy comparison
   A40:D43   safety-car sensitivity A47:C49   traffic sensitivity
 """
 SC_PACE_FACTOR = 1.6
@@ -71,23 +71,26 @@ def build(meas: dict | None, d: dict):
     rows.append(["Race time", '=TEXT(B27/86400,"[h]:mm:ss")'])                              # B28
     rows.append(["", ""])
     rows.append(["STRATEGY COMPARISON", "timed: most laps wins · lap race: least time wins"])
-    rows.append(["Pit stops", "Stint laps", "Avg lap (s)", "Total laps", "Fuel (L)", "Finish", "Best", "(calc L)", "(calc s)"])
+    rows.append(["Pit stops", "Stint laps", "Avg lap (s)", "Total laps", "Fuel (L)", "Target fuel (L/lap)", "Finish", "Best", "(calc L)", "(calc s)"])
     for r in range(32, 37):
         o = r - 32
         rows.append([
             f"=$B$25+{o}",                                         # A: pit stops
-            f"=ROUND(H{r})",                                       # B: stint laps (display)
-            f"=ROUND($B$21+$B$16*(H{r}-1)/2,2)",                   # C: avg lap
-            f"=IF($B$5>0,$B$5,ROUND((A{r}+1)*H{r}))",              # D: total laps
-            f"=ROUND(D{r}*$B$17)",                                 # E: fuel
-            f'=TEXT(I{r}/86400,"[h]:mm:ss")',                      # F: finish (lap race)
-            f'=IF($B$5>0,IF(I{r}=MIN($I$32:$I$36),"◀ best",""),IF(D{r}=MAX($D$32:$D$36),"◀ best",""))',
-            # H: continuous stint length (laps), capped by fuel; quadratic solves the
+            f"=ROUND(I{r})",                                       # B: stint laps (display)
+            f"=ROUND($B$21+$B$16*(I{r}-1)/2,2)",                   # C: avg lap
+            f"=IF($B$5>0,$B$5,ROUND((A{r}+1)*I{r}))",             # D: total laps
+            f"=ROUND(D{r}*$B$17)",                                 # E: fuel needed (total L)
+            # F: fuel/lap to target so each stint (I laps + B7-lap margin) finishes on
+            #    one tank — the fuel-save target needed to reach this row's lap count.
+            f"=ROUND($B$18/(I{r}+$B$7),3)",                        # F: target fuel (L/lap)
+            f'=TEXT(J{r}/86400,"[h]:mm:ss")',                      # G: finish (lap race)
+            f'=IF($B$5>0,IF(J{r}=MIN($J$32:$J$36),"◀ best",""),IF(D{r}=MAX($D$32:$D$36),"◀ best",""))',
+            # I: continuous stint length (laps), capped by fuel; quadratic solves the
             #    time available per stint against fresh pace + degradation.
             (f"=IF($B$5>0,$B$5/(A{r}+1),MIN($B$22,IF($B$16=0,"
              f"(($B$27-A{r}*$B$6)/(A{r}+1))/$B$21,"
              f"(SQRT(($B$21-$B$16/2)^2+2*$B$16*(($B$27-A{r}*$B$6)/(A{r}+1)))-($B$21-$B$16/2))/$B$16)))"),
-            # I: finish time in seconds (lap race) / race seconds (timed)
+            # J: finish time in seconds (lap race) / race seconds (timed)
             f"=IF($B$5>0,$B$5*$B$21+$B$16/2*$B$5*($B$5/(A{r}+1)-1)+A{r}*$B$6,$B$27)",
         ])
     rows.append(["", ""])
